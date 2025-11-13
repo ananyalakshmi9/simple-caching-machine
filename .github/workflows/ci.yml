@@ -1,0 +1,96 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Run backend tests
+        working-directory: backend
+        run: npm test --silent
+      - name: Run coverage
+        working-directory: backend
+        run: npm run coverage --silent
+      - name: Upload coverage
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: backend/coverage
+
+  lint:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Run eslint
+        working-directory: backend
+        run: npm run lint
+
+  security:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: npm audit
+        working-directory: backend
+        run: npm audit --audit-level=high || true
+      - name: Upload security report
+        run: npm audit --json > security-report.json || true
+      - uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: security-report.json
+
+  package:
+    needs: [build, test, lint, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create artifact
+        run: |
+          mkdir deployment
+          cp -r backend deployment/backend
+          cp -r frontend deployment/frontend
+          cp -r .github deployment/.github
+          zip -r deployment-package.zip deployment
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: deployment-package
+          path: deployment-package.zip
